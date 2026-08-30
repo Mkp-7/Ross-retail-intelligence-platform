@@ -1,0 +1,15 @@
+.env
+__pycache__/
+*.py[cod]
+venv/
+env/
+.venv/
+data/yelp_academic_dataset_business.json
+data/yelp_academic_dataset_review.json
+*.tar
+*.tar.gz
+.streamlit/secrets.toml
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
