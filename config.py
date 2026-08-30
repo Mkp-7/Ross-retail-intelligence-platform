@@ -16,7 +16,7 @@ PLATFORM_TITLE    = "Retail Intelligence Platform"
 PLATFORM_SUBTITLE = "Customer Insights & Store Operations"
 PLATFORM_ICON     = "🏪"
 
-GROQ_MODEL = "groq/compound-mini"
+GEMINI_MODEL = "gemini-2.0-flash"
 
 DATA_DIR          = "data"
 BUSINESSES_CSV    = "data/businesses.csv"
