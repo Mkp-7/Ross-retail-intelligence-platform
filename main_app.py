@@ -163,10 +163,10 @@ with st.sidebar:
         st.query_params["page"] = selected_key
         st.rerun()
 
-    groq_key = os.environ.get("GROQ_API_KEY", "")
-    if not groq_key:
+    gemini_key = os.environ.get("GEMINI_API_KEY", "")
+    if not gemini_key:
         st.markdown("---")
-        st.warning("⚠️ Add GROQ_API_KEY to a `.env` file.\nFree key: console.groq.com")
+        st.warning("⚠️ Add GEMINI_API_KEY to Streamlit Secrets.\nFree key: aistudio.google.com")
 
 
 def nav_to(page_key: str):
