@@ -1,7 +1,8 @@
 """
 Voice of Customer AI engine — Gemini Flash (free tier)
 """
-import os, json
+import os
+import json
 import pandas as pd
 from dotenv import load_dotenv
 from google import genai
@@ -20,7 +21,7 @@ def get_client():
         )
     return genai.Client(api_key=api_key)
 
-# Keep this alias so existing imports don't break
+
 def get_groq_client():
     return get_client()
 
@@ -39,6 +40,7 @@ def _generate(client, prompt: str, max_tokens: int = 1000, temperature: float = 
 
 def cluster_themes(reviews_sample: list, client, industry: str = "retail") -> dict:
     numbered = "\n".join([f"[{i+1}] {r[:300]}" for i, r in enumerate(reviews_sample)])
+
     prompt = f"""You are analyzing customer reviews for a {industry} chain.
 
 Here are {len(reviews_sample)} customer reviews:
@@ -71,6 +73,7 @@ Respond ONLY in this JSON format, no other text:
         if raw.startswith("json"):
             raw = raw[4:]
     raw = raw.strip()
+
     try:
         return json.loads(raw)
     except json.JSONDecodeError:
@@ -166,6 +169,7 @@ Plain business English. No bullet points. No headers. Under 200 words."""
 
 def score_sentiment_batch(texts: list, client) -> list:
     numbered = "\n".join([f"[{i+1}] {t[:200]}" for i, t in enumerate(texts)])
+
     prompt = f"""Rate the sentiment of each review.
 Respond ONLY with a JSON array of strings.
 Each string must be exactly: "positive", "neutral", or "negative"
@@ -180,6 +184,7 @@ Reviews:
         if raw.startswith("json"):
             raw = raw[4:]
     raw = raw.strip()
+
     try:
         labels = json.loads(raw)
         valid = {"positive", "neutral", "negative"}
