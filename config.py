@@ -16,7 +16,7 @@ PLATFORM_TITLE    = "Retail Intelligence Platform"
 PLATFORM_SUBTITLE = "Customer Insights & Store Operations"
 PLATFORM_ICON     = "🏪"
 
-GROQ_MODEL = "llama-3.3-70b-versatile"
+GROQ_MODEL = "groq/compound-mini"
 
 DATA_DIR          = "data"
 BUSINESSES_CSV    = "data/businesses.csv"
