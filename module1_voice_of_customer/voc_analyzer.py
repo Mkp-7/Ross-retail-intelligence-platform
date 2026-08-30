@@ -59,7 +59,7 @@ Respond ONLY in this JSON format, no other text:
 }}"""
 
     response = client.chat.completions.create(
-        model="llama-3.1-8b-instant",
+        model="groq/compound-mini",
         messages=[{"role": "user", "content": prompt}],
         temperature=0.3,
         max_tokens=1000,
@@ -164,7 +164,7 @@ Write a concise executive summary (3-4 short paragraphs) covering:
 Plain business English. No bullet points. No headers. Under 200 words."""
 
     response = client.chat.completions.create(
-        model="llama-3.1-8b-instant",
+        model="groq/compound-mini",
         messages=[{"role": "user", "content": prompt}],
         temperature=0.4,
         max_tokens=400,
@@ -188,7 +188,7 @@ Reviews:
 {numbered}"""
 
     response = client.chat.completions.create(
-        model="llama-3.1-8b-instant",
+        model="groq/compound-mini",
         messages=[{"role": "user", "content": prompt}],
         temperature=0.1,
         max_tokens=200,
