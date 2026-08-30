@@ -1,37 +1,44 @@
 """
-Voice of Customer AI engine.
-Uses Groq (free LLM) for theme clustering, anomaly detection,
-sentiment scoring, and executive summary generation.
+Voice of Customer AI engine — Gemini Flash (free tier)
 """
-
-import os
-import json
+import os, json
 import pandas as pd
-import numpy as np
-from groq import Groq
 from dotenv import load_dotenv
+from google import genai
+from google.genai import types
 
 load_dotenv()
 
 
-def get_groq_client() -> Groq:
-    api_key = os.environ.get("GROQ_API_KEY", "")
+def get_client():
+    api_key = os.environ.get("GEMINI_API_KEY", "")
     if not api_key:
         raise ValueError(
-            "GROQ_API_KEY not set.\n"
-            "1. Get a free key at https://console.groq.com\n"
-            "2. Copy .env.example to .env and paste your key."
+            "GEMINI_API_KEY not set.\n"
+            "Get a free key at https://aistudio.google.com\n"
+            "Add it to Streamlit Secrets: GEMINI_API_KEY = 'your_key'"
         )
-    return Groq(api_key=api_key)
+    return genai.Client(api_key=api_key)
+
+# Keep this alias so existing imports don't break
+def get_groq_client():
+    return get_client()
 
 
-def cluster_themes(reviews_sample: list, client: Groq, industry: str = "retail") -> dict:
-    """
-    Identify top recurring themes across a sample of review texts.
-    Returns structured JSON with theme names, sentiment, percentage, and example quote.
-    """
+def _generate(client, prompt: str, max_tokens: int = 1000, temperature: float = 0.3) -> str:
+    response = client.models.generate_content(
+        model="gemini-2.0-flash",
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            max_output_tokens=max_tokens,
+            temperature=temperature,
+        ),
+    )
+    return response.text.strip()
+
+
+def cluster_themes(reviews_sample: list, client, industry: str = "retail") -> dict:
     numbered = "\n".join([f"[{i+1}] {r[:300]}" for i, r in enumerate(reviews_sample)])
-
     prompt = f"""You are analyzing customer reviews for a {industry} chain.
 
 Here are {len(reviews_sample)} customer reviews:
@@ -58,20 +65,12 @@ Respond ONLY in this JSON format, no other text:
   ]
 }}"""
 
-    response = client.chat.completions.create(
-        model="groq/compound-mini",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.3,
-        max_tokens=1000,
-    )
-
-    raw = response.choices[0].message.content.strip()
+    raw = _generate(client, prompt, max_tokens=1000, temperature=0.3)
     if raw.startswith("```"):
         raw = raw.split("```")[1]
         if raw.startswith("json"):
             raw = raw[4:]
     raw = raw.strip()
-
     try:
         return json.loads(raw)
     except json.JSONDecodeError:
@@ -79,54 +78,53 @@ Respond ONLY in this JSON format, no other text:
 
 
 def detect_anomalies(df: pd.DataFrame, threshold: float = 0.4) -> pd.DataFrame:
-    """
-    Find locations where the recent 30-day average rating has dropped
-    significantly compared to their all-time average.
-    """
     df = df.copy()
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
-    df = df.dropna(subset=["date"])
-
+    df["stars"] = pd.to_numeric(df["stars"], errors="coerce")
+    df = df.dropna(subset=["stars"])
     if df.empty:
         return pd.DataFrame()
 
-    cutoff = df["date"].max() - pd.Timedelta(days=30)
+    loc_col = "place_name" if "place_name" in df.columns else (
+              "business_id" if "business_id" in df.columns else None)
+    if loc_col is None:
+        return pd.DataFrame()
 
-    historical = (
-        df.groupby("business_id")["stars"]
-        .agg(historical_avg="mean", total_reviews="count")
+    df = df[df[loc_col].fillna("").str.strip() != ""]
+    if df.empty:
+        return pd.DataFrame()
+
+    group_cols = [loc_col]
+    if "brand_id" in df.columns:
+        group_cols = ["brand_id", loc_col]
+
+    loc_agg = (
+        df.groupby(group_cols)["stars"]
+        .agg(avg_rating="mean", total_reviews="count")
         .reset_index()
+        .rename(columns={loc_col: "business_id"})
     )
 
-    recent_df = df[df["date"] >= cutoff]
-    if recent_df.empty:
-        q80 = df["date"].quantile(0.80)
-        recent_df = df[df["date"] >= q80]
+    if "brand_id" in df.columns:
+        brand_avgs = df.groupby("brand_id")["stars"].mean().rename("brand_avg")
+        loc_agg = loc_agg.merge(brand_avgs, on="brand_id", how="left")
+    else:
+        loc_agg["brand_avg"] = df["stars"].mean()
 
-    recent = (
-        recent_df.groupby("business_id")["stars"]
-        .agg(recent_avg="mean", recent_reviews="count")
-        .reset_index()
-    )
+    loc_agg["brand_avg"]      = loc_agg["brand_avg"].round(2)
+    loc_agg["rating_drop"]    = (loc_agg["brand_avg"] - loc_agg["avg_rating"]).round(2)
+    loc_agg["historical_avg"] = loc_agg["brand_avg"]
+    loc_agg["recent_avg"]     = loc_agg["avg_rating"].round(2)
+    loc_agg["recent_reviews"] = loc_agg["total_reviews"]
 
-    merged = historical.merge(recent, on="business_id", how="inner")
-    merged["rating_drop"] = merged["historical_avg"] - merged["recent_avg"]
-    anomalies = merged[merged["rating_drop"] >= threshold].copy()
+    anomalies = loc_agg[
+        (loc_agg["rating_drop"] >= threshold) &
+        (loc_agg["total_reviews"] >= 2)
+    ].copy()
     return anomalies.sort_values("rating_drop", ascending=False)
 
 
-def write_exec_summary(
-    themes: list,
-    anomaly_stores: pd.DataFrame,
-    total_reviews: int,
-    avg_rating: float,
-    date_range: str,
-    client: Groq,
-    brand_name: str = "the chain",
-) -> str:
-    """
-    Generate a ready-to-send executive summary paragraph for leadership.
-    """
+def write_exec_summary(themes, anomaly_stores, total_reviews,
+                       avg_rating, date_range, client, brand_name="the chain") -> str:
     themes_text = ""
     for t in themes[:5]:
         themes_text += f"- {t['name']} ({t['percent']}%, {t['sentiment']}): {t['description']}\n"
@@ -134,13 +132,13 @@ def write_exec_summary(
     anomaly_text = ""
     if not anomaly_stores.empty:
         for _, row in anomaly_stores.head(3).iterrows():
-            loc = f"{row.get('city', row['business_id'])}"
+            loc = row.get("city", row.get("business_id", "Unknown"))
             anomaly_text += (
-                f"- {loc}: rating dropped {row['rating_drop']:.1f} stars "
-                f"(from {row['historical_avg']:.1f} to {row['recent_avg']:.1f})\n"
+                f"- {loc}: {row['recent_avg']:.1f}⭐ "
+                f"(brand avg: {row['historical_avg']:.1f}⭐, gap: -{row['rating_drop']:.1f})\n"
             )
     else:
-        anomaly_text = "No significant anomaly locations detected this period.\n"
+        anomaly_text = "No locations significantly below brand average.\n"
 
     prompt = f"""You are writing a weekly executive summary for the VP of Store Operations at {brand_name}.
 
@@ -163,22 +161,11 @@ Write a concise executive summary (3-4 short paragraphs) covering:
 
 Plain business English. No bullet points. No headers. Under 200 words."""
 
-    response = client.chat.completions.create(
-        model="groq/compound-mini",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.4,
-        max_tokens=400,
-    )
-    return response.choices[0].message.content.strip()
+    return _generate(client, prompt, max_tokens=400, temperature=0.4)
 
 
-def score_sentiment_batch(texts: list, client: Groq) -> list:
-    """
-    Score a batch of review texts as positive / neutral / negative.
-    Returns a list of labels in the same order as input.
-    """
+def score_sentiment_batch(texts: list, client) -> list:
     numbered = "\n".join([f"[{i+1}] {t[:200]}" for i, t in enumerate(texts)])
-
     prompt = f"""Rate the sentiment of each review.
 Respond ONLY with a JSON array of strings.
 Each string must be exactly: "positive", "neutral", or "negative"
@@ -187,20 +174,12 @@ Example for 3 reviews: ["positive", "negative", "neutral"]
 Reviews:
 {numbered}"""
 
-    response = client.chat.completions.create(
-        model="groq/compound-mini",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.1,
-        max_tokens=200,
-    )
-
-    raw = response.choices[0].message.content.strip()
+    raw = _generate(client, prompt, max_tokens=200, temperature=0.1)
     if raw.startswith("```"):
         raw = raw.split("```")[1]
         if raw.startswith("json"):
             raw = raw[4:]
     raw = raw.strip()
-
     try:
         labels = json.loads(raw)
         valid = {"positive", "neutral", "negative"}
