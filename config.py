@@ -1,10 +1,5 @@
 """
 Configuration — edit this file to target any retail chain.
-
-To use with a different company:
-1. Update TARGET_BUSINESS_NAMES with name variations to match
-2. Update PLATFORM_TITLE and PLATFORM_SUBTITLE for the UI
-3. Re-run: python module1_voice_of_customer/01_extract_reviews.py
 """
 
 TARGET_BUSINESS_NAMES = [
